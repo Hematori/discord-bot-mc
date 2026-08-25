@@ -1,5 +1,5 @@
 const telegramToken = '8998161096:AAF14FgTdFn58LQDr0JZ4iEv1F3QyW1h5W4';
-const discordToken = 'MTU0MTkwNzIzMzg5MjQ3NDkyMA.GmwCKD.ybYdyxci5tA5MAOSfBOdoCsKyOPWOBZhnZog3M';
+const discordToken = 'MTU0MTkwNzIzMzg5MjQ3NDkyMA.GN_sEi.23zeWjQv0BIjYwEJsYRdxoY_30gYd2aBS3FfF4';
 
 const { Telegraf, Markup } = require('telegraf');
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
@@ -154,7 +154,7 @@ telegramBot.on('text', (ctx) => {
     if (userState === 'WAITING_FOR_USERNAME') {
         if (text.toLowerCase() !== 'skip') tempConfig.username = text;
         userState = 'WAITING_FOR_VERSION';
-        return ctx.reply(`أرسل **إصدار ماين كرافت بدقة** (مثل \`1.20.1\` أو \`false\` للإصدار التلقائي):`, { parse_mode: 'Markdown' });
+        return ctx.reply(`أرسل **إصدار ماين كرافت بدقة** (مثل \`1.20.1\` أو \`false\` الإصدار التلقائي):`, { parse_mode: 'Markdown' });
     }
 
     if (userState === 'WAITING_FOR_VERSION') {
@@ -239,6 +239,9 @@ discordClient.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
     if (interaction.commandName === 'connect') {
+        // الرد الفوري لمنع خطأ "The application did not respond"
+        await interaction.deferReply();
+
         const hostInput = interaction.options.getString('host');
         const usernameInput = interaction.options.getString('username') || 'haitheem';
         const versionInput = interaction.options.getString('version');
@@ -250,7 +253,7 @@ discordClient.on('interactionCreate', async interaction => {
         tempConfig.version = (versionInput && versionInput.toLowerCase() !== 'false') ? versionInput : false;
 
         isUserStopped = false;
-        await interaction.reply(`🚀 جاري الاتصال بـ **${tempConfig.host}:${tempConfig.port}** باسم **${tempConfig.username}**...`);
+        await interaction.editReply(`🚀 جاري الاتصال بـ **${tempConfig.host}:${tempConfig.port}** باسم **${tempConfig.username}**...`);
         launchMinecraftBot(null, interaction);
     }
 
@@ -282,13 +285,10 @@ discordClient.on('messageCreate', async (message) => {
     }
 });
 
-// دالة عامة لإرسال التنبيهات لتليجرام وديسكورد معاً
 function sendAlertToPlatforms(textMessage) {
-    // إرسال لتليجرام لو كان مفعل
     if (activeTelegramCtx) {
         activeTelegramCtx.reply(textMessage).catch(() => {});
     }
-    // إرسال لأحدث قناة ديسكورد تفاعل معها البوت (اختياري، أو يمكنك تحديد قناة ثابتة)
     discordClient.guilds.cache.forEach(guild => {
         const channel = guild.systemChannel || guild.channels.cache.find(ch => ch.isTextBased() && ch.permissionsFor(guild.members.me).has('SendMessages'));
         if (channel) {
@@ -297,8 +297,6 @@ function sendAlertToPlatforms(textMessage) {
     });
 }
 
-
-// --- [ دالة تشغيل بوت ماين كرافت والتقاط الأحداث ] ---
 function launchMinecraftBot(telegramCtx = null, discordTarget = null) {
     if (mcBot) {
         try { mcBot.quit(); } catch (e) {}
@@ -325,7 +323,8 @@ function launchMinecraftBot(telegramCtx = null, discordTarget = null) {
         const successMsg = `✅ **نجح دخول البوت** (${tempConfig.username}) للسيرفر وصار متصلاً بنجاح!`;
         if (telegramCtx) telegramCtx.reply(successMsg, getPermanentMenu());
         if (discordTarget) {
-            if (typeof discordTarget.followUp === 'function') discordTarget.followUp(successMsg);
+            if (typeof discordTarget.editReply === 'function') discordTarget.editReply(successMsg);
+            else if (typeof discordTarget.followUp === 'function') discordTarget.followUp(successMsg);
             else if (typeof discordTarget.reply === 'function') discordTarget.reply(successMsg);
         }
 
@@ -341,26 +340,16 @@ function launchMinecraftBot(telegramCtx = null, discordTarget = null) {
         startAntiAfk();
     });
 
-    // 1. مراقبة شات اللعبة والرسائل العامة
-    mcBot.on('messagestr', (message) => {
-        if (!message) return;
-        // تجاهل رسائل البوت نفسه إذا أردت، أو عرضها
-        console.log(`[MC Chat]: ${message}`);
-    });
-
-    // 2. مراقبة دخول اللاعبين للسيرفر
     mcBot.on('playerJoined', (player) => {
         if (player.username === mcBot.username) return;
         sendAlertToPlatforms(`🟢 **اللاعب دخل:** \`${player.username}\` انضم إلى السيرفر.`);
     });
 
-    // 3. مراقبة خروج اللاعبين من السيرفر
     mcBot.on('playerLeft', (player) => {
         if (player.username === mcBot.username) return;
-        sendAlertToPlatforms(`🔴 **اللاعب خرج:** \`${player.username}\` غادر السيرفر.`);
+        sendAlertTothPlatforms = sendAlertToPlatforms(`🔴 **اللاعب خرج:** \`${player.username}\` غادر السيرفر.`);
     });
 
-    // 4. مراقبة موت البوت أو اللاعبين المرئيين
     mcBot.on('death', () => {
         sendAlertToPlatforms(`💀 **تنبيه:** البوت (${tempConfig.username}) قد مات داخل اللعبة! جاري إعادة الترسبن...`);
         setTimeout(() => { try { if (mcBot) mcBot.respawn(); } catch (e) {} }, 1500);
@@ -394,7 +383,6 @@ function startAntiAfk() {
     }, 110000);
 }
 
-// تشغيل البوتات معاً
 telegramBot.launch().then(() => console.log('🤖 بوت تيليجرام يعمل بنجاح!'));
 if (discordToken) {
     discordClient.login(discordToken).then(() => console.log('🤖 بوت ديسكورد يعمل بنجاح!'));
