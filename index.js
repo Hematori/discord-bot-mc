@@ -1,5 +1,5 @@
 const telegramToken = '8998161096:AAF14FgTdFn58LQDr0JZ4iEv1F3QyW1h5W4';
-const discordToken = 'MTU0MTkwNzIzMzg5MjQ3NDkyMA.GN_sEi.23zeWjQv0BIjYwEJsYRdxoY_30gYd2aBS3FfF4';
+const discordToken = 'MTU0MTkwNzIzMzg5MjQ3NDkyMA.GmwCKD.ybYdyxci5tA5MAOSfBOdoCsKyOPWOBZhnZog3M';
 
 const { Telegraf, Markup } = require('telegraf');
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
