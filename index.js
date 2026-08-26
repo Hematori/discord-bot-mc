@@ -39,7 +39,7 @@ telegramBot.telegram.setMyCommands([
     { command: 'config', description: 'تعديل إعدادات السيرفر والاسم' },
     { command: 'stopbot', description: 'إيقاف البوت' },
     { command: 'coords', description: 'معرفة الإحداثيات' },
-    { command: 'say', description: 'إرسال رسالة داخل شات ماين كرافت (مثال: /say hello)' }
+    { command: 'say', description: 'إرسال رسالة داخل شات ماين كرافت' }
 ]).catch(() => {});
 
 telegramBot.start((ctx) => {
@@ -154,7 +154,7 @@ telegramBot.on('text', (ctx) => {
     if (userState === 'WAITING_FOR_USERNAME') {
         if (text.toLowerCase() !== 'skip') tempConfig.username = text;
         userState = 'WAITING_FOR_VERSION';
-        return ctx.reply(`أرسل **إصدار ماين كرافت بدقة** (مثل \`1.20.1\` أو \`false\` الإصدار التلقائي):`, { parse_mode: 'Markdown' });
+        return ctx.reply(`أرسل **إصدار ماين كرافت بدقة** (مثل \`1.20.1\` أو \`false\` للتلقائي):`, { parse_mode: 'Markdown' });
     }
 
     if (userState === 'WAITING_FOR_VERSION') {
@@ -239,7 +239,6 @@ discordClient.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
     if (interaction.commandName === 'connect') {
-        // الرد الفوري لمنع خطأ "The application did not respond"
         await interaction.deferReply();
 
         const hostInput = interaction.options.getString('host');
@@ -261,9 +260,9 @@ discordClient.on('interactionCreate', async interaction => {
         const text = interaction.options.getString('message');
         if (mcBot) {
             mcBot.chat(text);
-            await interaction.reply(`💬 تم إرسال رسالتك لشات ماين كرافت: "${text}"`);
+            await interaction.reply({ content: `💬 تم إرسال رسالتك لشات ماين كرافت: "${text}"`, ephemeral: false });
         } else {
-            await interaction.reply(`❌ البوت غير متصل بالسيرفر حالياً!`);
+            await interaction.reply({ content: `❌ البوت غير متصل بالسيرفر حالياً!`, ephemeral: true });
         }
     }
 });
@@ -325,7 +324,6 @@ function launchMinecraftBot(telegramCtx = null, discordTarget = null) {
         if (discordTarget) {
             if (typeof discordTarget.editReply === 'function') discordTarget.editReply(successMsg);
             else if (typeof discordTarget.followUp === 'function') discordTarget.followUp(successMsg);
-            else if (typeof discordTarget.reply === 'function') discordTarget.reply(successMsg);
         }
 
         if (tempConfig.authType !== 'none' && tempConfig.password) {
@@ -347,7 +345,7 @@ function launchMinecraftBot(telegramCtx = null, discordTarget = null) {
 
     mcBot.on('playerLeft', (player) => {
         if (player.username === mcBot.username) return;
-        sendAlertTothPlatforms = sendAlertToPlatforms(`🔴 **اللاعب خرج:** \`${player.username}\` غادر السيرفر.`);
+        sendAlertToPlatforms(`🔴 **اللاعب خرج:** \`${player.username}\` غادر السيرفر.`);
     });
 
     mcBot.on('death', () => {
