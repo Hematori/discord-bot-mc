@@ -1,195 +1,25 @@
-const telegramToken = process.env.TELEGRAM_TOKEN || '8998161096:AAF14FgTdFn58LQDr0JZ4iEv1F3QyW1h5W4';
-const discordToken = process.env.DISCORD_TOKEN || 'MTU0MTkwNzIzMzg5MjQ3NDkyMA.GQso01.1ESTXPwDMtAkLj8IZxNVf6ub3i-8jrF0tpIDA4';
+require('dotenv').config();
+const discordToken = process.env.DISCORD_TOKEN;
 
-const { Telegraf, Markup } = require('telegraf');
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
 const mineflayer = require('mineflayer');
+const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 
 process.on('uncaughtException', (err) => { console.error('خطأ:', err.message); });
 process.on('unhandledRejection', (reason) => { console.error('رفض:', reason); });
 
-// --- [ إعدادات بوت تيليجرام ] ---
-const telegramBot = new Telegraf(telegramToken);
-let activeTelegramCtx = null;
-let isUserStopped = false;
-let userState = null; 
-
 let tempConfig = {
-    host: 'mdgames.wither.host',
+    host: '',
     port: 25565,
     username: 'haitheem',
-    version: false,
-    authType: 'none', 
-    password: ''
+    version: false
 };
 
 let mcBot = null;
 let reconnectInterval = null;
 let antiAfkInterval = null;
-
-function getPermanentMenu() {
-    return Markup.keyboard([
-        ['🚀 تشغيل البوت', '⚙️ إعدادات السيرفر'],
-        ['🛑 إيقاف البوت', '📍 الإحداثيات']
-    ]).resize();
-}
-
-telegramBot.telegram.setMyCommands([
-    { command: 'start', description: 'تشغيل البوت ولوحة التحكم' },
-    { command: 'config', description: 'تعديل إعدادات السيرفر والاسم' },
-    { command: 'stopbot', description: 'إيقاف البوت' },
-    { command: 'coords', description: 'معرفة الإحداثيات' },
-    { command: 'say', description: 'إرسال رسالة داخل شات ماين كرافت' }
-]).catch(() => {});
-
-telegramBot.start((ctx) => {
-    activeTelegramCtx = ctx;
-    userState = null;
-    ctx.reply(
-        `🎮 أهلاً بك في لوحة تحكم ماين كرافت (تيليجرام)!\n\n` +
-        `🔹 **السيرفر الحالي:** ${tempConfig.host}:${tempConfig.port}\n` +
-        `🔹 **اسم البوت:** ${tempConfig.username}\n` +
-        `🔹 **الإصدار:** ${tempConfig.version || 'تلقائي (Auto)'}\n\n` +
-        `اختر من الأزرار بالأسفل للتحكم:`,
-        getPermanentMenu()
-    );
-});
-
-telegramBot.command('say', (ctx) => {
-    const text = ctx.message.text.replace('/say', '').trim();
-    if (!text) {
-        return ctx.reply('⚠️ اكتب النص بعد الأمر، مثل: `/say السلام عليكم`', getPermanentMenu());
-    }
-    if (mcBot) {
-        mcBot.chat(text);
-        ctx.reply(`💬 تم إرسالها لشات اللعبة: "${text}"`, getPermanentMenu());
-    } else {
-        ctx.reply('❌ البوت غير متصل بالسيرفر حالياً!', getPermanentMenu());
-    }
-});
-
-telegramBot.hears('⚙️ إعدادات السيرفر', (ctx) => {
-    userState = 'WAITING_FOR_HOST_PORT';
-    ctx.reply(
-        `🛠️ **تعديل إعدادات السيرفر**\n\n` +
-        `أرسل **الآيبي والبورت** بهذا الشكل:\n` +
-        `\`ip:port\` (مثال: \`play.example.com:25565\` أو الآيبي فقط)\n` +
-        `(أو أرسل \`skip\` للإبقاء على الحالي: \`${tempConfig.host}:${tempConfig.port}\`)`,
-        { parse_mode: 'Markdown', reply_markup: Markup.removeKeyboard() }
-    );
-});
-
-telegramBot.hears('🛑 إيقاف البوت', (ctx) => { stopBotAction(ctx); });
-telegramBot.command('stopbot', (ctx) => { stopBotAction(ctx); });
-
-function stopBotAction(ctx) {
-    activeTelegramCtx = ctx;
-    isUserStopped = true;
-    clearTimeout(reconnectInterval);
-    clearTimeout(antiAfkInterval);
-
-    if (mcBot) {
-        try {
-            mcBot.quit();
-            mcBot = null;
-            if (ctx) ctx.reply('🛑 تم إيقاف البوت وفصله عن السيرفر بنجاح.', getPermanentMenu());
-        } catch (e) {
-            if (ctx) ctx.reply('⚠️ البوت متوقف بالفعل.', getPermanentMenu());
-        }
-    } else {
-        if (ctx) ctx.reply('❌ البوت ليس متصلاً أصلاً.', getPermanentMenu());
-    }
-}
-
-telegramBot.hears('📍 الإحداثيات', (ctx) => { sendCoordsAction(ctx); });
-telegramBot.command('coords', (ctx) => { sendCoordsAction(ctx); });
-
-function sendCoordsAction(ctx) {
-    if (mcBot && mcBot.entity && mcBot.entity.position) {
-        const pos = mcBot.entity.position;
-        ctx.reply(`📍 **الإحداثيات الحالية:**\n- X: \`${Math.round(pos.x)}\`\n- Y: \`${Math.round(pos.y)}\`\n- Z: \`${Math.round(pos.z)}\``, getPermanentMenu());
-    } else {
-        ctx.reply('❌ البوت غير متصل بالسيرفر حالياً!', getPermanentMenu());
-    }
-}
-
-telegramBot.hears('🚀 تشغيل البوت', (ctx) => {
-    activeTelegramCtx = ctx;
-    isUserStopped = false;
-    userState = null;
-    ctx.reply(
-        `🚀 جاري تشغيل البوت على:\n` +
-        `🌐 السيرفر: \`${tempConfig.host}:${tempConfig.port}\`\n` +
-        `👤 الاسم: \`${tempConfig.username}\`\n` +
-        `📦 الإصدار: \`${tempConfig.version || 'تلقائي'}\`...`,
-        { parse_mode: 'Markdown', ...getPermanentMenu() }
-    );
-    launchMinecraftBot(ctx, null);
-});
-
-telegramBot.on('text', (ctx) => {
-    activeTelegramCtx = ctx;
-    const text = ctx.message.text ? ctx.message.text.trim() : '';
-    if (text.startsWith('/')) return;
-
-    if (text.includes('تشغيل البوت') || text.includes('إيقاف البوت') || text.includes('الإحداثيات') || text.includes('إعدادات السيرفر')) {
-        return;
-    }
-
-    if (userState === 'WAITING_FOR_HOST_PORT') {
-        if (text.toLowerCase() !== 'skip') {
-            if (text.includes(':')) {
-                const parts = text.split(':');
-                tempConfig.host = parts[0].trim();
-                tempConfig.port = parseInt(parts[1].trim()) || 25565;
-            } else {
-                tempConfig.host = text;
-                tempConfig.port = 25565;
-            }
-        }
-        userState = 'WAITING_FOR_USERNAME';
-        return ctx.reply(`أرسل **اسم البوت** داخل اللعبة (أو اكتب \`skip\` للإبقاء على \`${tempConfig.username}\`):`, { parse_mode: 'Markdown' });
-    }
-
-    if (userState === 'WAITING_FOR_USERNAME') {
-        if (text.toLowerCase() !== 'skip') tempConfig.username = text;
-        userState = 'WAITING_FOR_VERSION';
-        return ctx.reply(`أرسل **إصدار ماين كرافت بدقة** (مثل \`1.20.1\` أو \`false\` للتلقائي):`, { parse_mode: 'Markdown' });
-    }
-
-    if (userState === 'WAITING_FOR_VERSION') {
-        tempConfig.version = (text.toLowerCase() === 'false' || text.toLowerCase() === 'skip') ? false : text;
-        userState = 'WAITING_FOR_AUTH';
-        return ctx.reply(
-            `هل يتطلب السيرفر تسجيل دخول؟\n` +
-            `اختر نوع الدخول: \`register\` أو \`login\` أو \`none\``,
-            { parse_mode: 'Markdown' }
-        );
-    }
-
-    if (userState === 'WAITING_FOR_AUTH') {
-        const auth = text.toLowerCase();
-        if (['register', 'login', 'none'].includes(auth)) {
-            tempConfig.authType = auth;
-            if (auth === 'none') {
-                userState = null;
-                return ctx.reply(`✅ تم حفظ الإعدادات بنجاح!\n\nاضغط على **🚀 تشغيل البوت** للدخول.`, getPermanentMenu());
-            } else {
-                userState = 'WAITING_FOR_PASSWORD';
-                return ctx.reply(`أرسل **كلمة المرور (Password)** الخاصة بالحساب:`, { parse_mode: 'Markdown' });
-            }
-        } else {
-            return ctx.reply('❌ خيار غير صحيح. اكتب: `register` أو `login` أو `none`');
-        }
-    }
-
-    if (userState === 'WAITING_FOR_PASSWORD') {
-        tempConfig.password = text;
-        userState = null;
-        return ctx.reply(`✅ تم حفظ كافة الإعدادات! اضغط على **🚀 تشغيل البوت** للدخول.`, { parse_mode: 'Markdown', ...getPermanentMenu() });
-    }
-});
-
+let isUserStopped = false;
+let isBotConnected = false;
 
 // --- [ إعدادات بوت ديسكورد ] ---
 const discordClient = new Client({
@@ -203,10 +33,10 @@ const discordClient = new Client({
 const discordCommands = [
     new SlashCommandBuilder()
         .setName('connect')
-        .setDescription('تشغيل بوت ماين كرافت والاتصال بسيرفر مع تحديد الآيبي، الإصدار، واسم اللاعب')
+        .setDescription('اتصال بالسيرفر وحفظه كإعدادات أساسية')
         .addStringOption(option =>
             option.setName('host')
-                .setDescription('أيب السيرفر (مثال: play.server.com أو ip:port)')
+                .setDescription('آيبي السيرفر (مثال: play.server.com)')
                 .setRequired(true))
         .addStringOption(option =>
             option.setName('username')
@@ -217,12 +47,27 @@ const discordCommands = [
                 .setDescription('إصدار اللعبة (مثال: 1.20.1 أو false للتلقائي)')
                 .setRequired(false)),
     new SlashCommandBuilder()
+        .setName('start')
+        .setDescription('تشغيل البوت والدخول فوراً بآخر آيبي محفوظ'),
+    new SlashCommandBuilder()
+        .setName('goto')
+        .setDescription('إرسال البوت إلى إحداثيات معينة (X, Y, Z) في الفارم')
+        .addIntegerOption(option => option.setName('x').setDescription('إحداثيات X').setRequired(true))
+        .addIntegerOption(option => option.setName('y').setDescription('إحداثيات Y').setRequired(true))
+        .addIntegerOption(option => option.setName('z').setDescription('إحداثيات Z').setRequired(true)),
+    new SlashCommandBuilder()
+        .setName('stop')
+        .setDescription('إيقاف بوت ماين كرافت وفصله عن السيرفر'),
+    new SlashCommandBuilder()
         .setName('say')
-        .setDescription('إرسال رسالة إلى شات سيرفر ماين كرافت عبر البوت')
+        .setDescription('إرسال رسالة إلى شات سيرفر ماين كرافت')
         .addStringOption(option =>
             option.setName('message')
-                .setDescription('النص الذي تريد إرساله في شات اللعبة')
-                .setRequired(true))
+                .setDescription('النص الذي تريد إرساله')
+                .setRequired(true)),
+    new SlashCommandBuilder()
+        .setName('status')
+        .setDescription('معرفة حالة اتصال البوت وسيرفرك المحفوظ')
 ].map(command => command.toJSON());
 
 discordClient.once('ready', async () => {
@@ -240,7 +85,6 @@ discordClient.on('interactionCreate', async interaction => {
 
     if (interaction.commandName === 'connect') {
         await interaction.deferReply();
-
         const hostInput = interaction.options.getString('host');
         const usernameInput = interaction.options.getString('username') || 'haitheem';
         const versionInput = interaction.options.getString('version');
@@ -252,42 +96,87 @@ discordClient.on('interactionCreate', async interaction => {
         tempConfig.version = (versionInput && versionInput.toLowerCase() !== 'false') ? versionInput : false;
 
         isUserStopped = false;
-        await interaction.editReply(`🚀 جاري الاتصال بـ **${tempConfig.host}:${tempConfig.port}** باسم **${tempConfig.username}**...`);
-        launchMinecraftBot(null, interaction);
+        await interaction.editReply(`🚀 جاري الاتصال بـ **${tempConfig.host}:${tempConfig.port}** باسم **${tempConfig.username}** وحفظ الإعدادات...`);
+        launchMinecraftBot(interaction);
+    }
+
+    if (interaction.commandName === 'start') {
+        await interaction.deferReply();
+        if (!tempConfig.host) {
+            await interaction.editReply(`❌ لم تقم بتحديد أي سيرفر من قبل! استخدم أمر \`/connect\` أولاً.`);
+            return;
+        }
+        isUserStopped = false;
+        await interaction.editReply(`🚀 جاري تشغيل بوت الماين كرافت على السيرفر المحفوظ \`${tempConfig.host}:${tempConfig.port}\`...`);
+        launchMinecraftBot(interaction);
+    }
+
+    if (interaction.commandName === 'goto') {
+        if (!isBotConnected || !mcBot) {
+            await interaction.reply({ content: `❌ البوت غير متصل بالسيرفر حالياً لتنفيذ الأمر!`, ephemeral: true });
+            return;
+        }
+        const x = interaction.options.getInteger('x');
+        const y = interaction.options.getInteger('y');
+        const z = interaction.options.getInteger('z');
+
+        await interaction.reply({ content: `🏃‍♂️ جاري توجه البوت نحو الإحداثيات: \`X: ${x}, Y: ${y}, Z: ${z}\`...`, ephemeral: false });
+
+        try {
+            const defaultMove = new Movements(mcBot);
+            mcBot.pathfinder.setMovements(defaultMove);
+            const goal = new goals.GoalBlock(x, y, z);
+            mcBot.pathfinder.goto(goal, (err) => {
+                if (err) {
+                    interaction.followUp(`⚠️ لم يتمكن البوت من الوصول للإحداثيات: ${err.message}`);
+                } else {
+                    interaction.followUp(`✅ وصل البوت بنجاح إلى الإحداثيات المحددة في الفارم وصار جاهزاً للـ AFK!`);
+                }
+            });
+        } catch (e) {
+            interaction.followUp(`❌ حدث خطأ أثناء تحرك البوت: ${e.message}`);
+        }
+    }
+
+    if (interaction.commandName === 'stop') {
+        isUserStopped = true;
+        isBotConnected = false;
+        if (mcBot) {
+            try {
+                mcBot.quit();
+                mcBot = null;
+                clearInterval(antiAfkInterval);
+                await interaction.reply({ content: `🛑 تم إيقاف بوت الماين كرافت وفصله عن السيرفر بنجاح.`, ephemeral: false });
+            } catch (e) {
+                await interaction.reply({ content: `⚠️ حدث خطأ أثناء إيقاف البوت.`, ephemeral: true });
+            }
+        } else {
+            await interaction.reply({ content: `❌ البوت غير متصل بالسيرفر أصلاً!`, ephemeral: true });
+        }
     }
 
     if (interaction.commandName === 'say') {
         const text = interaction.options.getString('message');
-        if (mcBot) {
+        if (isBotConnected && mcBot) {
             mcBot.chat(text);
             await interaction.reply({ content: `💬 تم إرسال رسالتك لشات ماين كرافت: "${text}"`, ephemeral: false });
         } else {
             await interaction.reply({ content: `❌ البوت غير متصل بالسيرفر حالياً!`, ephemeral: true });
         }
     }
-});
 
-discordClient.on('messageCreate', async (message) => {
-    if (message.author.bot) return;
-    if (message.content === '!startmc') {
-        isUserStopped = false;
-        message.reply(`🚀 جاري تشغيل بوت الماين كرافت على سيرفر \`${tempConfig.host}\`...`);
-        launchMinecraftBot(null, message);
-    }
-    if (message.content === '!stopmc') {
-        isUserStopped = true;
-        if (mcBot) {
-            try { mcBot.quit(); mcBot = null; message.reply('🛑 تم إيقاف بوت الماين كرافت بنجاح.'); } catch (e) {}
+    if (interaction.commandName === 'status') {
+        if (isBotConnected && mcBot && mcBot.entity) {
+            const pos = `(الإحداثيات الحالية: X: ${Math.floor(mcBot.entity.position.x)}, Y: ${Math.floor(mcBot.entity.position.y)}, Z: ${Math.floor(mcBot.entity.position.z)})`;
+            await interaction.reply({ content: `🟢 البوت **متصل** بسيرفر \`${tempConfig.host}\` ${pos}.`, ephemeral: false });
         } else {
-            message.reply('❌ البوت غير متصل أصلاً.');
+            const lastHostText = tempConfig.host ? `آخر سيرفر محفوظ: \`${tempConfig.host}\`` : `لا يوجد سيرفر محفوظ بعد.`;
+            await interaction.reply({ content: `🔴 البوت **غير متصل**. (${lastHostText})`, ephemeral: false });
         }
     }
 });
 
-function sendAlertToPlatforms(textMessage) {
-    if (activeTelegramCtx) {
-        activeTelegramCtx.reply(textMessage).catch(() => {});
-    }
+function sendAlertToDiscord(textMessage) {
     discordClient.guilds.cache.forEach(guild => {
         const channel = guild.systemChannel || guild.channels.cache.find(ch => ch.isTextBased() && ch.permissionsFor(guild.members.me).has('SendMessages'));
         if (channel) {
@@ -296,12 +185,13 @@ function sendAlertToPlatforms(textMessage) {
     });
 }
 
-function launchMinecraftBot(telegramCtx = null, discordTarget = null) {
+function launchMinecraftBot(discordTarget = null) {
     if (mcBot) {
         try { mcBot.quit(); } catch (e) {}
         mcBot = null;
     }
     clearInterval(antiAfkInterval);
+    isBotConnected = false;
 
     const botOptions = {
         host: tempConfig.host,
@@ -314,52 +204,40 @@ function launchMinecraftBot(telegramCtx = null, discordTarget = null) {
         botOptions.version = tempConfig.version;
     }
 
-    let isConnected = false;
     mcBot = mineflayer.createBot(botOptions);
+    mcBot.loadPlugin(pathfinder);
 
     mcBot.once('spawn', () => {
-        isConnected = true;
+        isBotConnected = true;
         const successMsg = `✅ **نجح دخول البوت** (${tempConfig.username}) للسيرفر وصار متصلاً بنجاح!`;
-        if (telegramCtx) telegramCtx.reply(successMsg, getPermanentMenu());
         if (discordTarget) {
             if (typeof discordTarget.editReply === 'function') discordTarget.editReply(successMsg);
             else if (typeof discordTarget.followUp === 'function') discordTarget.followUp(successMsg);
+            else if (typeof discordTarget.reply === 'function') discordTarget.reply(successMsg);
         }
-
-        if (tempConfig.authType !== 'none' && tempConfig.password) {
-            setTimeout(() => {
-                if (mcBot) {
-                    if (tempConfig.authType === 'register') mcBot.chat(`/register ${tempConfig.password} ${tempConfig.password}`);
-                    else if (tempConfig.authType === 'login') mcBot.chat(`/login ${tempConfig.password}`);
-                }
-            }, 3500);
-        }
-
         startAntiAfk();
     });
 
     mcBot.on('playerJoined', (player) => {
         if (player.username === mcBot.username) return;
-        sendAlertToPlatforms(`🟢 **اللاعب دخل:** \`${player.username}\` انضم إلى السيرفر.`);
+        sendAlertToDiscord(`🟢 **اللاعب دخل:** \`${player.username}\` انضم إلى السيرفر.`);
     });
 
     mcBot.on('playerLeft', (player) => {
         if (player.username === mcBot.username) return;
-        sendAlertToPlatforms(`🔴 **اللاعب خرج:** \`${player.username}\` غادر السيرفر.`);
+        sendAlertToDiscord(`🔴 **اللاعب خرج:** \`${player.username}\` غادر السيرفر.`);
     });
 
     mcBot.on('death', () => {
-        sendAlertToPlatforms(`💀 **تنبيه:** البوت (${tempConfig.username}) قد مات داخل اللعبة! جاري إعادة الترسبن...`);
+        sendAlertToDiscord(`💀 **تنبيه:** البوت (${tempConfig.username}) قد مات داخل اللعبة! جاري إعادة الترسبن...`);
         setTimeout(() => { try { if (mcBot) mcBot.respawn(); } catch (e) {} }, 1500);
     });
 
     mcBot.on('end', (reason) => {
         clearInterval(antiAfkInterval);
-        if (isConnected && !isUserStopped) {
-            sendAlertToPlatforms(`⚠️ انقطع اتصال البوت بالسيرفر. السبب: \`${reason}\`. جاري إعادة المحاولة...`);
-        }
-        isConnected = false;
+        isBotConnected = false;
         if (!isUserStopped) {
+            sendAlertToDiscord(`⚠️ انقطع اتصال البوت بالسيرفر. السبب: \`${reason}\`. جاري إعادة المحاولة...`);
             clearTimeout(reconnectInterval);
             reconnectInterval = setTimeout(() => launchMinecraftBot(), 15000);
         }
@@ -371,7 +249,7 @@ function launchMinecraftBot(telegramCtx = null, discordTarget = null) {
 function startAntiAfk() {
     clearInterval(antiAfkInterval);
     antiAfkInterval = setInterval(() => {
-        if (!mcBot || !mcBot.entity) return;
+        if (!isBotConnected || !mcBot || !mcBot.entity) return;
         try {
             const yaw = mcBot.entity.yaw + (Math.random() > 0.5 ? 0.6 : -0.6);
             mcBot.look(yaw, mcBot.entity.pitch, true);
@@ -381,7 +259,6 @@ function startAntiAfk() {
     }, 110000);
 }
 
-telegramBot.launch().then(() => console.log('🤖 بوت تيليجرام يعمل بنجاح!'));
 if (discordToken) {
     discordClient.login(discordToken).then(() => console.log('🤖 بوت ديسكورد يعمل بنجاح!'));
 }
